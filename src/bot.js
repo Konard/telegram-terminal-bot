@@ -384,6 +384,7 @@ ${initialOutput}
   } catch (error) {
     logger.error({ userId, error: error.message, stack: error.stack }, 'Failed to start terminal session');
     await ctx.reply("❌ Failed to start terminal session. Check logs for details.");
+    process.exit(1);
   }
 });
 
@@ -424,6 +425,7 @@ bot.on("message:text", async (ctx) => {
   } catch (error) {
     logger.error({ userId, command, error: error.message }, 'Failed to execute terminal command');
     await ctx.reply("❌ Failed to execute command. Check logs for details.");
+    process.exit(1);
   }
 });
 
@@ -443,6 +445,7 @@ bot.command("stop", async (ctx) => {
     } catch (error) {
       logger.error({ userId, error: error.message }, 'Failed to stop terminal session');
       await ctx.reply("❌ Failed to stop terminal session. Check logs for details.");
+      process.exit(1);
     }
   } else {
     logger.warn({ userId }, 'Stop command called but no active session');
@@ -472,6 +475,7 @@ bot.command("restart", async (ctx) => {
   } catch (error) {
     logger.error({ userId, error: error.message }, 'Failed to restart terminal session');
     await ctx.reply("❌ Failed to restart terminal session. Check logs for details.");
+    process.exit(1);
   }
 });
 
