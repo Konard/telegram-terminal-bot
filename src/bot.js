@@ -220,14 +220,24 @@ bot.command("start", async (ctx) => {
     
     // Handle terminal output
     terminal.onData((data) => {
-      logger.debug({ userId, dataLength: data.length }, 'Terminal data received');
+      logger.debug({ 
+        userId, 
+        dataLength: data.length,
+        dataPreview: data.substring(0, 50) + (data.length > 50 ? '...' : ''),
+        totalOutputLength: output.length + data.length
+      }, 'Terminal data received');
       output += data;
       
       // Debounce updates to prevent rapid firing
       if (updateTimeout) {
         clearTimeout(updateTimeout);
+        logger.debug({ userId }, 'Clearing previous update timeout');
       }
-      updateTimeout = setTimeout(updateTerminalMessage, 150);
+      updateTimeout = setTimeout(() => {
+        logger.debug({ userId }, 'Debounced update timeout triggered');
+        updateTerminalMessage();
+      }, 150);
+      logger.debug({ userId }, 'Set new update timeout for 150ms');
     });
     
     // Handle terminal exit
@@ -259,21 +269,36 @@ ${formattedOutput}
           return;
         }
         
-        logger.debug({ userId, messageId, outputLength: output.length, messageLength: messageText.length }, 'Updating terminal message');
+        logger.debug({ 
+          userId, 
+          messageId, 
+          outputLength: output.length, 
+          messageLength: messageText.length,
+          rawOutput: output.substring(0, 100) + (output.length > 100 ? '...' : ''),
+          formattedPreview: formattedOutput.substring(0, 100) + (formattedOutput.length > 100 ? '...' : '')
+        }, 'Updating terminal message');
         
         if (messageId) {
           await ctx.api.editMessageText(ctx.chat.id, messageId, messageText, {
             parse_mode: "Markdown"
           });
-          logger.debug({ userId, messageId }, 'Terminal message updated');
+          logger.debug({ userId, messageId }, 'Terminal message updated successfully');
           lastMessageContent = messageText;
+          // Update session with current messageId
+          if (userSessions.has(userId)) {
+            userSessions.get(userId).messageId = messageId;
+          }
         } else {
           const message = await ctx.reply(messageText, {
             parse_mode: "Markdown"
           });
           messageId = message.message_id;
-          logger.debug({ userId, messageId }, 'Initial terminal message sent');
+          logger.debug({ userId, messageId }, 'New terminal message sent');
           lastMessageContent = messageText;
+          // Update session with new messageId
+          if (userSessions.has(userId)) {
+            userSessions.get(userId).messageId = messageId;
+          }
         }
       } catch (error) {
         // Check if it's just a "message not modified" error
@@ -301,6 +326,10 @@ ${formattedOutput}
             });
             messageId = message.message_id;
             lastMessageContent = messageText;
+            // Update session with new messageId
+            if (userSessions.has(userId)) {
+              userSessions.get(userId).messageId = messageId;
+            }
             logger.debug({ userId, messageId }, 'New terminal message sent after edit failure');
           } catch (e) {
             logger.error({ userId, error: e.message }, 'Failed to send new terminal message');
@@ -371,6 +400,13 @@ bot.on("message:text", async (ctx) => {
   }
   
   try {
+    // Check for interactive commands and warn user
+    const interactiveCommands = ['top', 'htop', 'vim', 'nano', 'emacs', 'less', 'more', 'man'];
+    if (interactiveCommands.some(cmd => command.toLowerCase().startsWith(cmd))) {
+      logger.warn({ userId, command }, 'Interactive command detected');
+      await ctx.reply(`⚠️ Interactive command \`${command}\` may not work properly in this terminal. Use \`Ctrl+C\` (send "^C") to cancel if it hangs.`, { parse_mode: 'Markdown' });
+    }
+    
     logger.info({ userId, command }, 'Executing terminal command');
     // Send command to terminal
     session.terminal.write(command + '\r');
