@@ -26,7 +26,9 @@ A secure Telegram bot that provides terminal access to a single authorized user.
    Edit `.env` file with your values:
    ```env
    BOT_TOKEN=your_bot_token_here
+   # Use either USER_ID or USERNAME (not both)
    AUTHORIZED_USER_ID=123456789
+   # AUTHORIZED_USERNAME=@drakonard
    TERMINAL_COLS=80
    TERMINAL_ROWS=24
    SHELL=/bin/bash
@@ -34,7 +36,9 @@ A secure Telegram bot that provides terminal access to a single authorized user.
 
 4. **Get Required Values**:
    - **BOT_TOKEN**: Create a bot with [@BotFather](https://t.me/BotFather) on Telegram
-   - **AUTHORIZED_USER_ID**: Get your user ID from [@userinfobot](https://t.me/userinfobot)
+   - **Authorization**: Choose one method:
+     - **AUTHORIZED_USER_ID**: Get your user ID from [@userinfobot](https://t.me/userinfobot)
+     - **AUTHORIZED_USERNAME**: Use your Telegram username (include @ symbol)
 
 5. **Run the Bot**:
    ```bash

@@ -5,7 +5,8 @@ import { config } from "dotenv";
 config();
 
 const bot = new Bot(process.env.BOT_TOKEN);
-const AUTHORIZED_USER_ID = parseInt(process.env.AUTHORIZED_USER_ID);
+const AUTHORIZED_USER_ID = process.env.AUTHORIZED_USER_ID ? parseInt(process.env.AUTHORIZED_USER_ID) : null;
+const AUTHORIZED_USERNAME = process.env.AUTHORIZED_USERNAME;
 const TERMINAL_COLS = parseInt(process.env.TERMINAL_COLS) || 80;
 const TERMINAL_ROWS = parseInt(process.env.TERMINAL_ROWS) || 24;
 const SHELL = process.env.SHELL || "/bin/bash";
@@ -13,9 +14,25 @@ const SHELL = process.env.SHELL || "/bin/bash";
 // Store terminal sessions per user (though we only allow one user)
 const userSessions = new Map();
 
+// Helper function to check if user is authorized
+function isAuthorized(user) {
+  if (AUTHORIZED_USER_ID && user.id === AUTHORIZED_USER_ID) {
+    return true;
+  }
+  
+  if (AUTHORIZED_USERNAME && user.username) {
+    const username = AUTHORIZED_USERNAME.startsWith('@') 
+      ? AUTHORIZED_USERNAME.substring(1) 
+      : AUTHORIZED_USERNAME;
+    return user.username === username;
+  }
+  
+  return false;
+}
+
 // Middleware to check if user is authorized
 bot.use((ctx, next) => {
-  if (ctx.from?.id !== AUTHORIZED_USER_ID) {
+  if (!isAuthorized(ctx.from)) {
     return ctx.reply("❌ You are not authorized to use this bot.");
   }
   return next();
