@@ -39,7 +39,7 @@ if (!process.env.BOT_TOKEN) {
   process.exit(1);
 }
 
-if (!AUTHORIZED_USER_ID && !process.env.AUTHORIZED_USERNAME) {
+if (!process.env.AUTHORIZED_USER_ID && !process.env.AUTHORIZED_USERNAME) {
   logger.fatal('Either AUTHORIZED_USER_ID or AUTHORIZED_USERNAME must be set');
   process.exit(1);
 }
@@ -47,15 +47,19 @@ if (!AUTHORIZED_USER_ID && !process.env.AUTHORIZED_USERNAME) {
 const bot = new Bot(process.env.BOT_TOKEN);
 const AUTHORIZED_USER_ID = process.env.AUTHORIZED_USER_ID ? parseInt(process.env.AUTHORIZED_USER_ID) : null;
 const AUTHORIZED_USERNAME = process.env.AUTHORIZED_USERNAME;
-const TERMINAL_COLS = parseInt(process.env.TERMINAL_COLS) || 80;
-const TERMINAL_ROWS = parseInt(process.env.TERMINAL_ROWS) || 24;
 const SHELL = process.env.SHELL || "/bin/bash";
+
+// Aspect ratio presets optimized for 2000 char Telegram limit
+const ASPECT_RATIOS = {
+  '1:1': { cols: 44, rows: 44, name: '1:1 Square' },
+  '16:9': { cols: 56, rows: 32, name: '16:9 Landscape' },
+  '9:16': { cols: 32, rows: 56, name: '9:16 Portrait' }
+};
 
 logger.info({
   authorizedUserId: AUTHORIZED_USER_ID,
   authorizedUsername: AUTHORIZED_USERNAME,
-  terminalCols: TERMINAL_COLS,
-  terminalRows: TERMINAL_ROWS,
+  aspectRatios: ASPECT_RATIOS,
   shell: SHELL
 }, 'Bot configuration loaded');
 
@@ -104,9 +108,39 @@ function escapeMarkdown(text) {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 }
 
+// Helper function to clean ANSI escape codes
+function cleanAnsiCodes(text) {
+  // Remove ANSI escape sequences
+  return text
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') // Standard ANSI escape sequences
+    .replace(/\x1b\][0-9;]*;[^\x07]*\x07/g, '') // OSC sequences
+    .replace(/\x1b\][0-9;]*;[^\x1b]*\x1b\\/g, '') // OSC sequences with string terminator
+    .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '') // Other escape sequences
+    .replace(/\x1b[=>]/g, '') // Application keypad sequences
+    .replace(/\x1b[()][\w]/g, '') // Character set sequences
+    .replace(/\x1b[NO]/g, '') // Single shift sequences
+    .replace(/\x1b[78]/g, '') // Save/restore cursor
+    .replace(/\x1b[HJK]/g, '') // Clear screen sequences
+    .replace(/\x1b[ABCD]/g, '') // Arrow keys
+    .replace(/\r/g, '') // Remove carriage returns
+    .replace(/\x07/g, '') // Remove bell characters
+    .replace(/\x08/g, '') // Remove backspace
+    .replace(/\x0f/g, '') // Remove shift in
+    .replace(/\x0e/g, ''); // Remove shift out
+}
+
 // Helper function to format terminal output
-function formatTerminalOutput(output, cols = TERMINAL_COLS, rows = TERMINAL_ROWS) {
-  const lines = output.split('\n');
+function formatTerminalOutput(output, cols, rows) {
+  // Clean ANSI codes first
+  const cleanOutput = cleanAnsiCodes(output || '');
+  
+  if (!cleanOutput || cleanOutput.trim().length === 0) {
+    // Return empty terminal with dimensions
+    const emptyLines = Array(rows).fill(''.padEnd(cols));
+    return emptyLines.join('\n');
+  }
+  
+  const lines = cleanOutput.split('\n');
   const displayLines = lines.slice(-rows).map(line => {
     if (line.length > cols) {
       return line.substring(0, cols);
@@ -149,7 +183,17 @@ function parseCommandInput(text) {
 // Start command handler
 bot.command("start", async (ctx) => {
   const userId = ctx.from.id;
-  logger.info({ userId }, 'Starting terminal session');
+  const aspectRatio = ctx.match || '16:9';
+  
+  logger.info({ userId, aspectRatio }, 'Starting terminal session');
+  
+  // Validate aspect ratio
+  if (!ASPECT_RATIOS[aspectRatio]) {
+    await ctx.reply(`❌ Invalid aspect ratio. Available options:\n\n📱 **Choose terminal aspect ratio:**\n• \`/start 1:1\` - ${ASPECT_RATIOS['1:1'].name} (${ASPECT_RATIOS['1:1'].cols}x${ASPECT_RATIOS['1:1'].rows})\n• \`/start 16:9\` - ${ASPECT_RATIOS['16:9'].name} (${ASPECT_RATIOS['16:9'].cols}x${ASPECT_RATIOS['16:9'].rows})\n• \`/start 9:16\` - ${ASPECT_RATIOS['9:16'].name} (${ASPECT_RATIOS['9:16'].cols}x${ASPECT_RATIOS['9:16'].rows})\n\n💡 Default: \`/start\` uses 16:9`, { parse_mode: 'Markdown' });
+    return;
+  }
+  
+  const { cols, rows, name } = ASPECT_RATIOS[aspectRatio];
   
   try {
     // Kill existing session if any
@@ -160,28 +204,38 @@ bot.command("start", async (ctx) => {
     }
     
     // Create new terminal session
-    logger.debug({ shell: SHELL, cols: TERMINAL_COLS, rows: TERMINAL_ROWS }, 'Creating new terminal session');
+    logger.debug({ shell: SHELL, cols, rows, aspectRatio: name }, 'Creating new terminal session');
     const terminal = pty.spawn(SHELL, [], {
       name: 'xterm-color',
-      cols: TERMINAL_COLS,
-      rows: TERMINAL_ROWS,
+      cols: cols,
+      rows: rows,
       cwd: process.env.HOME,
       env: process.env
     });
     
     let output = '';
     let messageId = null;
+    let updateTimeout = null;
+    let lastMessageContent = '';
     
     // Handle terminal output
     terminal.onData((data) => {
       logger.debug({ userId, dataLength: data.length }, 'Terminal data received');
       output += data;
-      updateTerminalMessage();
+      
+      // Debounce updates to prevent rapid firing
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+      updateTimeout = setTimeout(updateTerminalMessage, 150);
     });
     
     // Handle terminal exit
     terminal.onExit((exitCode, signal) => {
       logger.info({ userId, exitCode, signal }, 'Terminal session ended');
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
       userSessions.delete(userId);
       ctx.reply("🔴 Terminal session ended.");
     });
@@ -189,35 +243,64 @@ bot.command("start", async (ctx) => {
     // Function to update the terminal message
     async function updateTerminalMessage() {
       try {
-        const formattedOutput = formatTerminalOutput(output);
-        const messageText = `\`\`\`\n${formattedOutput}\n\`\`\``;
+        const formattedOutput = formatTerminalOutput(output, cols, rows);
+        const messageText = `🚀 **Terminal ${name} (${cols}x${rows})** - Ready!
+
+📱 **Aspect ratios:** \`/start 1:1\` \`/start 16:9\` \`/start 9:16\`
+💬 Send commands as text messages
+
+\`\`\`
+${formattedOutput}
+\`\`\``;
         
-        logger.debug({ userId, messageId, outputLength: output.length }, 'Updating terminal message');
+        // Skip update if content hasn't changed
+        if (messageText === lastMessageContent) {
+          logger.debug({ userId }, 'Skipping update - content unchanged');
+          return;
+        }
+        
+        logger.debug({ userId, messageId, outputLength: output.length, messageLength: messageText.length }, 'Updating terminal message');
         
         if (messageId) {
           await ctx.api.editMessageText(ctx.chat.id, messageId, messageText, {
             parse_mode: "Markdown"
           });
           logger.debug({ userId, messageId }, 'Terminal message updated');
+          lastMessageContent = messageText;
         } else {
           const message = await ctx.reply(messageText, {
             parse_mode: "Markdown"
           });
           messageId = message.message_id;
           logger.debug({ userId, messageId }, 'Initial terminal message sent');
+          lastMessageContent = messageText;
         }
       } catch (error) {
+        // Check if it's just a "message not modified" error
+        if (error.error_code === 400 && error.message.includes('message is not modified')) {
+          logger.debug({ userId }, 'Message content unchanged, skipping update');
+          return;
+        }
+        
         logger.warn({ userId, error: error.message, errorCode: error.error_code }, 'Failed to update terminal message');
         
-        // If editing fails (e.g., message too old), send a new message
-        if (error.error_code === 400) {
+        // Only create new message for other 400 errors (like message too old)
+        if (error.error_code === 400 && !error.message.includes('message is not modified')) {
           try {
-            const formattedOutput = formatTerminalOutput(output);
-            const messageText = `\`\`\`\n${formattedOutput}\n\`\`\``;
+            const formattedOutput = formatTerminalOutput(output, cols, rows);
+            const messageText = `🚀 **Terminal ${name} (${cols}x${rows})** - Ready!
+
+📱 **Aspect ratios:** \`/start 1:1\` \`/start 16:9\` \`/start 9:16\`
+💬 Send commands as text messages
+
+\`\`\`
+${formattedOutput}
+\`\`\``;
             const message = await ctx.reply(messageText, {
               parse_mode: "Markdown"
             });
             messageId = message.message_id;
+            lastMessageContent = messageText;
             logger.debug({ userId, messageId }, 'New terminal message sent after edit failure');
           } catch (e) {
             logger.error({ userId, error: e.message }, 'Failed to send new terminal message');
@@ -231,14 +314,32 @@ bot.command("start", async (ctx) => {
       terminal,
       output,
       messageId,
-      updateTerminalMessage
+      updateTerminalMessage,
+      cols,
+      rows
     });
     
-    logger.info({ userId }, 'Terminal session created and stored');
+    logger.info({ userId, aspectRatio: name, dimensions: `${cols}x${rows}` }, 'Terminal session created and stored');
     
-    // Send initial welcome message
-    await ctx.reply("🚀 Terminal session started! Send commands as messages.");
-    logger.debug({ userId }, 'Welcome message sent');
+    // Send initial terminal message with empty state
+    const initialOutput = formatTerminalOutput('', cols, rows);
+    const initialMessage = `🚀 **Terminal ${name} (${cols}x${rows})** - Ready!
+
+📱 **Aspect ratios:** \`/start 1:1\` \`/start 16:9\` \`/start 9:16\`
+💬 Send commands as text messages
+
+\`\`\`
+${initialOutput}
+\`\`\``;
+    
+    const message = await ctx.reply(initialMessage, { parse_mode: "Markdown" });
+    messageId = message.message_id;
+    lastMessageContent = initialMessage;
+    
+    // Update session with message ID
+    userSessions.get(userId).messageId = messageId;
+    
+    logger.debug({ userId, messageId }, 'Initial terminal message sent');
     
     // Wait a bit for initial shell prompt, then update
     setTimeout(updateTerminalMessage, 500);
