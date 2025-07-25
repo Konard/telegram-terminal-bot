@@ -192,4 +192,4 @@ This is a single-user bot for personal use. Feel free to fork and modify for you
 
 ## 📄 License
 
-MIT License - See LICENSE file for details
+This is free and unencumbered software released into the public domain. See LICENSE file for details.
