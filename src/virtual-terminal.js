@@ -4,7 +4,7 @@
  */
 
 class VirtualTerminal {
-  constructor(cols = 80, rows = 24) {
+  constructor(cols = 56, rows = 32) {
     this.cols = cols;
     this.rows = rows;
     

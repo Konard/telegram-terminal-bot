@@ -114,11 +114,12 @@ The project includes comprehensive test suites:
 npm test
 
 # Individual test suites
-node src/test-terminal.js          # Core VirtualTerminal tests
-node src/test-subscription-system.js # Traffic optimization tests
-node src/test-control-sequences.js  # Control sequence handling
-node src/test-top-focused.js       # Interactive command tests
-node src/test-bot-integration.js   # Bot integration tests
+cd src/tests
+node test-terminal.js              # Core VirtualTerminal tests
+node test-subscription-system.js   # Traffic optimization tests
+node test-control-sequences.js     # Control sequence handling
+node test-top-focused.js           # Interactive command tests
+node test-bot-integration.js       # Bot integration tests
 ```
 
 ## 🏗️ Architecture
@@ -131,10 +132,10 @@ The text bot uses a custom VirtualTerminal implementation that:
 - Optimizes traffic by detecting actual screen changes
 
 ### Key Components
-- **VirtualTerminal.js**: Core terminal emulator
+- **virtual-terminal.js**: Core terminal emulator
 - **text-bot.js**: Efficient text-based bot
 - **visual-bot.js**: Rich visual bot with image generation
-- **Comprehensive test suite**: 40+ tests ensuring reliability
+- **tests/**: Comprehensive test suite with 40+ tests ensuring reliability
 
 ## 🔒 Security Notes
 
@@ -162,11 +163,14 @@ The text bot uses a custom VirtualTerminal implementation that:
 ### Project Structure
 ```
 src/
-├── VirtualTerminal.js          # Core terminal emulator
+├── virtual-terminal.js         # Core terminal emulator
 ├── text-bot.js                 # Text-based bot
 ├── visual-bot.js               # Visual bot with GIFs
-├── test-*.js                   # Test suites
-└── TEST_RESULTS_SUMMARY.md     # Test documentation
+└── tests/                      # Test suites and documentation
+    ├── test-*.js               # Test files
+    ├── debug/                  # Debug utilities
+    ├── TEST_RESULTS_SUMMARY.md # Test documentation
+    └── VIRTUAL_TERMINAL_README.md # Terminal docs
 ```
 
 ### Logging

@@ -7,7 +7,7 @@
  * testing the VirtualTerminal's ability to handle screen refreshes properly.
  */
 
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 class TopSimulator {
   constructor(terminal, verbose = false) {
@@ -76,7 +76,7 @@ class TopSimulator {
     console.log('Configuration:');
     console.log('- Update interval: 1 second');
     console.log('- Duration: 3 seconds');
-    console.log('- Terminal size: 80x24');
+    console.log('- Terminal size: 60x20');
     console.log('- Processes: 5 simulated processes\n');
     
     const startTime = Date.now();
@@ -140,7 +140,7 @@ async function runTopTests() {
   console.log('TEST 1: Normal Mode (quiet output)');
   console.log('='.repeat(80));
   
-  const terminal1 = new VirtualTerminal(80, 24);
+  const terminal1 = new VirtualTerminal(60, 20);
   const simulator1 = new TopSimulator(terminal1, false);
   
   const result1 = await simulator1.runSimulation();
@@ -150,7 +150,7 @@ async function runTopTests() {
   console.log('TEST 2: Verbose Mode (detailed logging)');
   console.log('='.repeat(80));
   
-  const terminal2 = new VirtualTerminal(80, 24);
+  const terminal2 = new VirtualTerminal(60, 20);
   const simulator2 = new TopSimulator(terminal2, true);
   
   const result2 = await simulator2.runSimulation();
@@ -169,8 +169,8 @@ async function runTopTests() {
   console.log('\n' + '='.repeat(80));
   console.log('PERFORMANCE SUMMARY');
   console.log('='.repeat(80));
-  console.log(`Test 1 (80x24): ${result1.duration}ms, ${result1.terminalFrames} screen changes`);
-  console.log(`Test 2 (80x24): ${result2.duration}ms, ${result2.terminalFrames} screen changes`);
+  console.log(`Test 1 (60x20): ${result1.duration}ms, ${result1.terminalFrames} screen changes`);
+  console.log(`Test 2 (60x20): ${result2.duration}ms, ${result2.terminalFrames} screen changes`);
   console.log(`Test 3 (40x12): ${result3.duration}ms, ${result3.terminalFrames} screen changes`);
   
   // Validate results

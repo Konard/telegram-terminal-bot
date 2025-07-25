@@ -7,7 +7,7 @@
  * for optimized traffic and change detection.
  */
 
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 console.log('🤖 Testing Bot Integration with Subscription System\n');
 

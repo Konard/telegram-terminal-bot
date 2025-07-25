@@ -1,4 +1,4 @@
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 // Debug text layout
 const term = new VirtualTerminal(10, 3);

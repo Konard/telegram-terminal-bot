@@ -5,7 +5,7 @@
  * Tests exactly 3 updates at 1-second intervals
  */
 
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 async function runFocusedTopTest() {
   console.log('🖥️  Focused TOP Command Test\n');

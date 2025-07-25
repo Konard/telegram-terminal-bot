@@ -1,4 +1,4 @@
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 const term = new VirtualTerminal(5, 3);
 

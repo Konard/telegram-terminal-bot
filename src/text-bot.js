@@ -3,7 +3,7 @@ import * as pty from "node-pty";
 import { config } from "dotenv";
 import pino from "pino";
 import { createWriteStream } from "fs";
-import VirtualTerminal from "./VirtualTerminal.js";
+import VirtualTerminal from "./virtual-terminal.js";
 
 config();
 

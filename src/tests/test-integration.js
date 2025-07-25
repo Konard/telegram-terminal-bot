@@ -4,7 +4,7 @@
  * Test the integration of VirtualTerminal with the bot logic
  */
 
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 // Test basic functionality
 console.log('🧪 Testing VirtualTerminal integration...\n');

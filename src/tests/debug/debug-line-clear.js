@@ -1,4 +1,4 @@
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 // Debug line clearing
 const term = new VirtualTerminal(10, 3);

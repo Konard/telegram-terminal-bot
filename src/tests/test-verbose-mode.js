@@ -5,7 +5,7 @@
  * This shows detailed logging of all terminal operations
  */
 
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 console.log('🔍 Testing VirtualTerminal Verbose Mode\n');
 

@@ -6,7 +6,7 @@
  * Tests that control sequences like ^C, ^D, ^Z are properly converted to ASCII control codes
  */
 
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 console.log('🎮 Testing Control Sequence Handling\n');
 

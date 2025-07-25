@@ -1,4 +1,4 @@
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 // Debug cursor position after writing lines
 const term = new VirtualTerminal(10, 5);

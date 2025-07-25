@@ -6,7 +6,7 @@
  * Tests the change notification system and traffic optimization features
  */
 
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 class SubscriptionTester {
   constructor() {
@@ -328,7 +328,7 @@ tester.test('Error handling in change listeners', async () => {
 
 // Test 9: Performance test with many changes
 tester.test('Performance with rapid changes', async () => {
-  const term = new VirtualTerminal(80, 24);
+  const term = new VirtualTerminal(60, 20);
   let changeCount = 0;
 
   term.onScreenChange(() => changeCount++);

@@ -7,7 +7,7 @@
  * and common terminal applications behavior.
  */
 
-import VirtualTerminal from './VirtualTerminal.js';
+import VirtualTerminal from '../virtual-terminal.js';
 
 class TerminalTester {
   constructor() {
@@ -292,7 +292,7 @@ tester.test('Resize terminal', () => {
 
 // Performance test
 tester.test('Performance test - lots of output', () => {
-  const term = new VirtualTerminal(80, 24);
+  const term = new VirtualTerminal(60, 20);
   
   const start = Date.now();
   

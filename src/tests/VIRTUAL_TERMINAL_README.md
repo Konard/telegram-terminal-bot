@@ -30,14 +30,14 @@ The VirtualTerminal class provides a comprehensive terminal emulation system tha
 ```javascript
 import VirtualTerminal from './VirtualTerminal.js';
 
-const term = new VirtualTerminal(80, 24);
+const term = new VirtualTerminal(); // Uses default 56x32 (16:9)
 term.write('Hello, World!\n');
 console.log(term.toString());
 ```
 
 ### Verbose Mode (Debugging)
 ```javascript
-const term = new VirtualTerminal(80, 24);
+const term = new VirtualTerminal(); // Uses default 56x32 (16:9)
 term.setVerbose(true); // Enable detailed logging
 
 term.write('\x1B[2J\x1B[H'); // Clear screen
@@ -47,7 +47,7 @@ term.write('CPU: 45%\n');
 
 ### TOP Command Simulation
 ```javascript
-const term = new VirtualTerminal(80, 24);
+const term = new VirtualTerminal(); // Uses default 56x32 (16:9)
 
 // Clear screen and position cursor
 term.write('\x1B[2J\x1B[H');
@@ -117,8 +117,8 @@ node src/test-integration.js
 ```javascript
 new VirtualTerminal(cols, rows)
 ```
-- `cols`: Terminal width (default: 80)
-- `rows`: Terminal height (default: 24)
+- `cols`: Terminal width (default: 56 for 16:9 aspect ratio, optimized for Telegram's 2000 char limit)
+- `rows`: Terminal height (default: 32 for 16:9 aspect ratio, optimized for Telegram's 2000 char limit)
 
 ### Methods
 
