@@ -3,9 +3,7 @@ import * as pty from "node-pty";
 import { config } from "dotenv";
 import pino from "pino";
 import { createWriteStream } from "fs";
-import GIFEncoder from "gifencoder";
-import { createCanvas } from "canvas";
-import { Readable } from "stream";
+import VirtualTerminal from "./VirtualTerminal.js";
 
 config();
 
@@ -59,12 +57,6 @@ const ASPECT_RATIOS = {
   '9:16': { cols: 32, rows: 56, name: '9:16 Portrait' }
 };
 
-// Animation settings
-const ANIMATION_DURATION = 3000; // 3 seconds
-const FRAME_INTERVAL = 1000; // 1 second per frame
-const FONT_SIZE = 16;
-const LINE_HEIGHT = FONT_SIZE * 1.2;
-
 logger.info({
   authorizedUserId: AUTHORIZED_USER_ID,
   authorizedUsername: AUTHORIZED_USERNAME,
@@ -72,7 +64,7 @@ logger.info({
   shell: SHELL
 }, 'Bot configuration loaded');
 
-// Store terminal sessions per user
+// Store terminal sessions per user (though we only allow one user)
 const userSessions = new Map();
 
 // Helper function to check if user is authorized
@@ -117,103 +109,33 @@ function escapeMarkdown(text) {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 }
 
-// Helper function to clean ANSI escape codes
-function cleanAnsiCodes(text) {
-  return text
-    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-    .replace(/\x1b\][0-9;]*;[^\x07]*\x07/g, '')
-    .replace(/\x1b\][0-9;]*;[^\x1b]*\x1b\\/g, '')
-    .replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '')
-    .replace(/\x1b[=>]/g, '')
-    .replace(/\x1b[()][\w]/g, '')
-    .replace(/\x1b[NO]/g, '')
-    .replace(/\x1b[78]/g, '')
-    .replace(/\x1b[HJK]/g, '')
-    .replace(/\x1b[ABCD]/g, '')
-    .replace(/\r/g, '')
-    .replace(/\x07/g, '')
-    .replace(/\x08/g, '')
-    .replace(/\x0f/g, '')
-    .replace(/\x0e/g, '');
+// Helper function to format terminal output using VirtualTerminal
+function formatTerminalOutput(virtualTerminal) {
+  return virtualTerminal.getScreenText();
 }
 
-// Helper function to format terminal output
-function formatTerminalOutput(output, cols, rows) {
-  const cleanOutput = cleanAnsiCodes(output || '');
-  if (!cleanOutput || cleanOutput.trim().length === 0) {
-    const emptyLines = Array(rows).fill(''.padEnd(cols));
-    return emptyLines.join('\n');
-  }
-
-  const lines = cleanOutput.split('\n');
-  const displayLines = lines.slice(-rows).map(line => {
-    if (line.length > cols) {
-      return line.substring(0, cols);
-    }
-    return line.padEnd(cols);
-  });
-
-  while (displayLines.length < rows) {
-    displayLines.unshift(''.padEnd(cols));
-  }
-
-  return displayLines.join('\n');
-}
-
-// Helper function to parse command input
+// Helper function to parse command input (handle plain text, single quotes, triple quotes)
 function parseCommandInput(text) {
   logger.debug({ originalText: text }, 'Parsing command input');
   
+  // Remove triple backticks if present
   if (text.startsWith('```') && text.endsWith('```')) {
     const parsed = text.slice(3, -3).trim();
     logger.debug({ parsed, method: 'triple-backticks' }, 'Command parsed');
     return parsed;
   }
   
+  // Remove single backticks if present
   if (text.startsWith('`') && text.endsWith('`')) {
     const parsed = text.slice(1, -1);
     logger.debug({ parsed, method: 'single-backticks' }, 'Command parsed');
     return parsed;
   }
   
+  // Return plain text
   const parsed = text.trim();
   logger.debug({ parsed, method: 'plain-text' }, 'Command parsed');
   return parsed;
-}
-
-// Function to generate animated GIF from terminal frames
-async function generateTerminalAnimation(frames, cols, rows) {
-  const width = cols * (FONT_SIZE * 0.6); // Approximate character width
-  const height = rows * LINE_HEIGHT;
-  const encoder = new GIFEncoder(width, height);
-  
-  const stream = encoder.createReadStream();
-  encoder.start();
-  encoder.setRepeat(0); // Loop indefinitely
-  encoder.setDelay(FRAME_INTERVAL); // Frame delay in ms
-  encoder.setQuality(10);
-
-  for (const frame of frames) {
-    const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
-    
-    // Set background and text style
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = `${FONT_SIZE}px monospace`;
-
-    // Split frame into lines and draw
-    const lines = frame.split('\n');
-    for (let i = 0; i < Math.min(lines.length, rows); i++) {
-      ctx.fillText(lines[i].substring(0, cols), 0, (i + 1) * LINE_HEIGHT);
-    }
-
-    encoder.addFrame(ctx);
-  }
-
-  encoder.finish();
-  return stream;
 }
 
 // Start command handler
@@ -223,6 +145,7 @@ bot.command("start", async (ctx) => {
   
   logger.info({ userId, aspectRatio }, 'Starting terminal session');
   
+  // Validate aspect ratio
   if (!ASPECT_RATIOS[aspectRatio]) {
     await ctx.reply(`❌ Invalid aspect ratio. Available options:\n\n📱 **Choose terminal aspect ratio:**\n• \`/start 1:1\` - ${ASPECT_RATIOS['1:1'].name} (${ASPECT_RATIOS['1:1'].cols}x${ASPECT_RATIOS['1:1'].rows})\n• \`/start 16:9\` - ${ASPECT_RATIOS['16:9'].name} (${ASPECT_RATIOS['16:9'].cols}x${ASPECT_RATIOS['16:9'].rows})\n• \`/start 9:16\` - ${ASPECT_RATIOS['9:16'].name} (${ASPECT_RATIOS['9:16'].cols}x${ASPECT_RATIOS['9:16'].rows})\n\n💡 Default: \`/start\` uses 16:9`, { parse_mode: 'Markdown' });
     return;
@@ -231,12 +154,15 @@ bot.command("start", async (ctx) => {
   const { cols, rows, name } = ASPECT_RATIOS[aspectRatio];
   
   try {
+    // Kill existing session if any
     if (userSessions.has(userId)) {
       logger.info({ userId }, 'Killing existing terminal session');
       userSessions.get(userId).terminal.kill();
       userSessions.delete(userId);
     }
     
+    // Create new terminal session
+    logger.debug({ shell: SHELL, cols, rows, aspectRatio: name }, 'Creating new terminal session');
     const terminal = pty.spawn(SHELL, [], {
       name: 'xterm-color',
       cols: cols,
@@ -245,43 +171,63 @@ bot.command("start", async (ctx) => {
       env: process.env
     });
     
-    let output = '';
+    // Create virtual terminal for proper ANSI handling
+    const virtualTerminal = new VirtualTerminal(cols, rows);
     let messageId = null;
     let updateTimeout = null;
     let lastMessageContent = '';
     
+    // Subscribe to terminal changes for optimized updates
+    const unsubscribeFromChanges = virtualTerminal.onScreenChange((changeData) => {
+      logger.debug({
+        userId,
+        frameNumber: changeData.frameNumber,
+        timestamp: changeData.timestamp,
+        cursorPosition: changeData.cursorPosition
+      }, 'Terminal screen changed');
+      
+      // Debounce updates to prevent rapid firing
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+      
+      const session = userSessions.get(userId);
+      const debounceTime = session?.isInteractive ? 300 : 150;
+      
+      updateTimeout = setTimeout(() => {
+        updateTerminalMessage();
+      }, debounceTime);
+    });
+    
+    // Handle terminal output
     terminal.onData((data) => {
       logger.debug({ 
         userId, 
         dataLength: data.length,
-        dataPreview: data.substring(0, 50) + (data.length > 50 ? '...' : ''),
-        totalOutputLength: output.length + data.length
+        dataPreview: data.substring(0, 50) + (data.length > 50 ? '...' : '')
       }, 'Terminal data received');
-      output += data;
       
-      if (updateTimeout) {
-        clearTimeout(updateTimeout);
-        logger.debug({ userId }, 'Clearing previous update timeout');
-      }
-      updateTimeout = setTimeout(() => {
-        logger.debug({ userId }, 'Debounced update timeout triggered');
-        updateTerminalMessage();
-      }, 150);
-      logger.debug({ userId }, 'Set new update timeout for 150ms');
+      // Feed data to virtual terminal for proper ANSI processing
+      // The change subscription will handle updates automatically
+      virtualTerminal.write(data);
     });
     
+    // Handle terminal exit
     terminal.onExit((exitCode, signal) => {
       logger.info({ userId, exitCode, signal }, 'Terminal session ended');
       if (updateTimeout) {
         clearTimeout(updateTimeout);
       }
+      // Unsubscribe from changes
+      unsubscribeFromChanges();
       userSessions.delete(userId);
       ctx.reply("🔴 Terminal session ended.");
     });
     
+    // Function to update the terminal message
     async function updateTerminalMessage() {
       try {
-        const formattedOutput = formatTerminalOutput(output, cols, rows);
+        const formattedOutput = formatTerminalOutput(virtualTerminal);
         const messageText = `🚀 **Terminal ${name} (${cols}x${rows})** - Ready!
 
 📱 **Aspect ratios:** \`/start 1:1\` \`/start 16:9\` \`/start 9:16\`
@@ -291,17 +237,22 @@ bot.command("start", async (ctx) => {
 ${formattedOutput}
 \`\`\``;
         
+        // Skip update if content hasn't changed (extra safety check)
         if (messageText === lastMessageContent) {
-          logger.debug({ userId }, 'Skipping update - content unchanged');
+          logger.debug({ userId }, 'Skipping update - content unchanged (should not happen with subscription)');
           return;
         }
+        
+        // Mark terminal as read to reset change flag
+        virtualTerminal.markAsRead();
         
         logger.debug({ 
           userId, 
           messageId, 
-          outputLength: output.length, 
+          screenCols: virtualTerminal.cols, 
           messageLength: messageText.length,
-          rawOutput: output.substring(0, 100) + (output.length > 100 ? '...' : ''),
+          cursorPos: virtualTerminal.getCursorPosition(),
+          frameCounter: virtualTerminal.frameCounter,
           formattedPreview: formattedOutput.substring(0, 100) + (formattedOutput.length > 100 ? '...' : '')
         }, 'Updating terminal message');
         
@@ -311,6 +262,7 @@ ${formattedOutput}
           });
           logger.debug({ userId, messageId }, 'Terminal message updated successfully');
           lastMessageContent = messageText;
+          // Update session with current messageId
           if (userSessions.has(userId)) {
             userSessions.get(userId).messageId = messageId;
           }
@@ -321,11 +273,13 @@ ${formattedOutput}
           messageId = message.message_id;
           logger.debug({ userId, messageId }, 'New terminal message sent');
           lastMessageContent = messageText;
+          // Update session with new messageId
           if (userSessions.has(userId)) {
             userSessions.get(userId).messageId = messageId;
           }
         }
       } catch (error) {
+        // Check if it's just a "message not modified" error
         if (error.error_code === 400 && error.message.includes('message is not modified')) {
           logger.debug({ userId }, 'Message content unchanged, skipping update');
           return;
@@ -333,9 +287,10 @@ ${formattedOutput}
         
         logger.warn({ userId, error: error.message, errorCode: error.error_code }, 'Failed to update terminal message');
         
+        // Only create new message for other 400 errors (like message too old)
         if (error.error_code === 400 && !error.message.includes('message is not modified')) {
           try {
-            const formattedOutput = formatTerminalOutput(output, cols, rows);
+            const formattedOutput = formatTerminalOutput(virtualTerminal);
             const messageText = `🚀 **Terminal ${name} (${cols}x${rows})** - Ready!
 
 📱 **Aspect ratios:** \`/start 1:1\` \`/start 16:9\` \`/start 9:16\`
@@ -349,6 +304,7 @@ ${formattedOutput}
             });
             messageId = message.message_id;
             lastMessageContent = messageText;
+            // Update session with new messageId
             if (userSessions.has(userId)) {
               userSessions.get(userId).messageId = messageId;
             }
@@ -360,18 +316,23 @@ ${formattedOutput}
       }
     }
     
+    // Store session
     userSessions.set(userId, {
       terminal,
-      output,
+      virtualTerminal,
       messageId,
       updateTerminalMessage,
+      unsubscribeFromChanges,
       cols,
-      rows
+      rows,
+      lastCommand: null,
+      isInteractive: false
     });
     
     logger.info({ userId, aspectRatio: name, dimensions: `${cols}x${rows}` }, 'Terminal session created and stored');
     
-    const initialOutput = formatTerminalOutput('', cols, rows);
+    // Send initial terminal message with empty state
+    const initialOutput = formatTerminalOutput(virtualTerminal);
     const initialMessage = `🚀 **Terminal ${name} (${cols}x${rows})** - Ready!
 
 📱 **Aspect ratios:** \`/start 1:1\` \`/start 16:9\` \`/start 9:16\`
@@ -385,12 +346,14 @@ ${initialOutput}
     messageId = message.message_id;
     lastMessageContent = initialMessage;
     
+    // Update session with message ID
     if (userSessions.has(userId)) {
       userSessions.get(userId).messageId = messageId;
     }
     
     logger.debug({ userId, messageId }, 'Initial terminal message sent');
     
+    // Wait a bit for initial shell prompt, then update
     setTimeout(updateTerminalMessage, 500);
     
   } catch (error) {
@@ -414,6 +377,7 @@ bot.on("message:text", async (ctx) => {
   
   const command = parseCommandInput(ctx.message.text);
 
+  // Skip if the message is empty after parsing
   if (!command) {
     logger.debug({ userId }, 'Empty command after parsing, skipping');
     return;
@@ -437,65 +401,42 @@ bot.on("message:text", async (ctx) => {
     return;
   }
 
+  // Store last command globally and in session for output formatting
   global.lastCommand = command;
-
-  const interactiveCommands = ['top', 'htop'];
-  const isInteractive = interactiveCommands.some(cmd => command.toLowerCase().startsWith(cmd));
+  session.lastCommand = command;
 
   try {
+    // Enhanced interactive command detection
+    const interactiveCommands = ['top', 'htop', 'vim', 'nano', 'emacs', 'less', 'more', 'man', 'watch'];
+    const streamingCommands = ['tail -f', 'ping'];
+    const longRunningCommands = ['wget', 'curl', 'rsync'];
+    
+    const isInteractive = interactiveCommands.some(cmd => command.toLowerCase().startsWith(cmd));
+    const isStreaming = streamingCommands.some(cmd => command.toLowerCase().includes(cmd));
+    const isLongRunning = longRunningCommands.some(cmd => command.toLowerCase().startsWith(cmd));
+    
+    session.isInteractive = isInteractive || isStreaming;
+    
     if (isInteractive) {
-      logger.info({ userId, command }, 'Interactive command detected, generating animation');
-      await ctx.reply(`🎥 Generating animation for \`${command}\`...`, { parse_mode: 'Markdown' });
-
-      // Capture frames for animation
-      const frames = [];
-      let frameTimeout;
-      const startTime = Date.now();
-
-      const captureFrames = () => {
-        frames.push(formatTerminalOutput(session.output, session.cols, session.rows));
-        if (Date.now() - startTime < ANIMATION_DURATION) {
-          frameTimeout = setTimeout(captureFrames, FRAME_INTERVAL);
-        }
-      };
-
-      session.terminal.write(command + '\r');
-      captureFrames();
-
-      // Wait for animation duration and generate GIF
-      await new Promise(resolve => setTimeout(resolve, ANIMATION_DURATION + 500));
-      clearTimeout(frameTimeout);
-
-      const animationStream = await generateTerminalAnimation(frames, session.cols, session.rows);
-      const animationBuffer = await streamToBuffer(animationStream);
-
-      // Send animation
-      await ctx.replyWithAnimation({ source: animationBuffer }, {
-        caption: `Animation of \`${command}\` (${ANIMATION_DURATION / 1000}s)`,
-        parse_mode: 'Markdown'
-      });
-
-      // Send instructions to stop if needed
-      await ctx.reply("ℹ️ To stop the command, send `^C` (Ctrl+C).", { parse_mode: 'Markdown' });
-    } else {
-      logger.info({ userId, command }, 'Executing regular terminal command');
-      session.terminal.write(command + '\r');
+      logger.info({ userId, command }, 'Interactive command detected');
+      await ctx.reply(`⚡ Running interactive command \`${command}\`. The display will update automatically. Send \`^C\` to stop.`, { parse_mode: 'Markdown' });
+    } else if (isStreaming) {
+      logger.info({ userId, command }, 'Streaming command detected');
+      await ctx.reply(`🔄 Running streaming command \`${command}\`. Send \`^C\` to stop.`, { parse_mode: 'Markdown' });
+    } else if (isLongRunning) {
+      logger.info({ userId, command }, 'Long-running command detected');
+      await ctx.reply(`⏳ Running \`${command}\`... This may take a while.`, { parse_mode: 'Markdown' });
     }
+
+    logger.info({ userId, command }, 'Executing terminal command');
+    // Send command to terminal
+    session.terminal.write(command + '\r');
   } catch (error) {
     logger.error({ userId, command, error: error.message }, 'Failed to execute terminal command');
     await ctx.reply("❌ Failed to execute command. Check logs for details.");
     process.exit(1);
   }
 });
-
-// Helper function to convert stream to buffer
-async function streamToBuffer(stream) {
-  const chunks = [];
-  for await (const chunk of stream) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
 
 // Handle stop command
 bot.command("stop", async (ctx) => {
@@ -528,6 +469,7 @@ bot.command("restart", async (ctx) => {
   
   try {
     await ctx.reply("🔄 Restarting terminal session...");
+    // Trigger start command
     await bot.handleUpdate({
       update_id: Date.now(),
       message: {
@@ -548,10 +490,13 @@ bot.command("restart", async (ctx) => {
 
 // Handle help command
 bot.command("help", async (ctx) => {
-  const helpMessage = `🎬 **Telegram Visual Terminal Bot Help**
+  const helpMessage = `🤖 **Telegram Terminal Bot Help**
 
 **Commands:**
-• \`/start\` - Start terminal session
+• \`/start\` - Start terminal with default 16:9 aspect ratio
+• \`/start 1:1\` - Start with square terminal (44x44)
+• \`/start 16:9\` - Start with landscape terminal (56x32)
+• \`/start 9:16\` - Start with portrait terminal (32x56)
 • \`/stop\` - Stop current terminal session
 • \`/restart\` - Restart terminal session
 • \`/help\` - Show this help message
@@ -561,17 +506,16 @@ bot.command("help", async (ctx) => {
 • Send \`^D\` or \`ctrl+d\` - Send EOF (end of file)
 • Send \`^Z\` or \`ctrl+z\` - Send SIGTSTP (suspend)
 
-**Features:**
-• 🎥 **GIF Animations** - Interactive commands (top, htop) generate animated GIFs
-• 📸 **Static Images** - Regular commands show PNG screenshots
-• 🎨 **ANSI Colors** - Full color support in terminal output
-• 📱 **Mobile Optimized** - Images sized for Telegram viewing
-
 **Usage:**
 1. Start a terminal session with \`/start\`
 2. Send any command as a text message
-3. Interactive commands automatically generate 3-second GIF animations
-4. Use control sequences to manage running processes`;
+3. Interactive commands (top, vim, etc.) will update automatically
+4. Use control sequences to manage running processes
+
+**Tips:**
+• The terminal displays are optimized for mobile screens
+• Traffic optimization reduces unnecessary updates
+• Long-running commands show progress indicators`;
 
   await ctx.reply(helpMessage, { parse_mode: 'Markdown' });
   logger.info({ userId: ctx.from.id }, 'Help command sent');
@@ -586,6 +530,7 @@ bot.catch((err) => {
 // Graceful shutdown
 process.once("SIGINT", () => {
   logger.info('Received SIGINT, shutting down gracefully...');
+  // Kill all terminal sessions
   for (const [userId, session] of userSessions) {
     logger.debug({ userId }, 'Killing terminal session during shutdown');
     try {
@@ -600,6 +545,7 @@ process.once("SIGINT", () => {
 
 process.once("SIGTERM", () => {
   logger.info('Received SIGTERM, shutting down gracefully...');
+  // Kill all terminal sessions
   for (const [userId, session] of userSessions) {
     logger.debug({ userId }, 'Killing terminal session during shutdown');
     try {
@@ -616,7 +562,7 @@ process.once("SIGTERM", () => {
 logger.info('Initializing bot...');
 bot.start({
   onStart: () => {
-    logger.info('Telegram Terminal Bot (Visual Mode) started successfully!');
+    logger.info('Telegram Terminal Bot started successfully!');
     logger.info({ 
       botInfo: bot.botInfo,
       pollingActive: true 
