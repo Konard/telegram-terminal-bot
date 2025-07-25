@@ -1,0 +1,22 @@
+{
+  "name": "telegram-terminal-bot",
+  "version": "1.0.0",
+  "description": "A Telegram bot that provides terminal access to a single authorized user",
+  "main": "src/bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/bot.js",
+    "dev": "bun --watch src/bot.js"
+  },
+  "dependencies": {
+    "grammy": "^1.27.0",
+    "node-pty": "^1.0.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0"
+  },
+  "keywords": ["telegram", "bot", "terminal", "ssh"],
+  "author": "",
+  "license": "ISC"
+}
