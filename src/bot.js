@@ -131,15 +131,21 @@ function cleanAnsiCodes(text) {
 
 // Helper function to format terminal output
 function formatTerminalOutput(output, cols, rows) {
-  // Clean ANSI codes first
-  const cleanOutput = cleanAnsiCodes(output || '');
-  
+  // Detect if last command was interactive (top, htop, etc.)
+  const interactiveCommands = ['top', 'htop', 'vim', 'nano', 'emacs', 'less', 'more', 'man'];
+  // Use a global/session variable to store last command if needed
+  let skipAnsiClean = false;
+  if (global.lastCommand) {
+    skipAnsiClean = interactiveCommands.some(cmd => global.lastCommand && global.lastCommand.toLowerCase().startsWith(cmd));
+  }
+  const cleanOutput = skipAnsiClean ? (output || '') : cleanAnsiCodes(output || '');
+
   if (!cleanOutput || cleanOutput.trim().length === 0) {
     // Return empty terminal with dimensions
     const emptyLines = Array(rows).fill(''.padEnd(cols));
     return emptyLines.join('\n');
   }
-  
+
   const lines = cleanOutput.split('\n');
   const displayLines = lines.slice(-rows).map(line => {
     if (line.length > cols) {
@@ -147,12 +153,12 @@ function formatTerminalOutput(output, cols, rows) {
     }
     return line.padEnd(cols);
   });
-  
+
   // Ensure we have exactly 'rows' lines
   while (displayLines.length < rows) {
     displayLines.unshift(''.padEnd(cols));
   }
-  
+
   return displayLines.join('\n');
 }
 
@@ -366,7 +372,9 @@ ${initialOutput}
     lastMessageContent = initialMessage;
     
     // Update session with message ID
-    userSessions.get(userId).messageId = messageId;
+    if (userSessions.has(userId)) {
+      userSessions.get(userId).messageId = messageId;
+    }
     
     logger.debug({ userId, messageId }, 'Initial terminal message sent');
     
@@ -392,13 +400,16 @@ bot.on("message:text", async (ctx) => {
   }
   
   const command = parseCommandInput(ctx.message.text);
-  
+
   // Skip if the message is empty after parsing
   if (!command) {
     logger.debug({ userId }, 'Empty command after parsing, skipping');
     return;
   }
-  
+
+  // Store last command globally for output formatting
+  global.lastCommand = command;
+
   try {
     // Check for interactive commands and warn user
     const interactiveCommands = ['top', 'htop', 'vim', 'nano', 'emacs', 'less', 'more', 'man'];
@@ -406,7 +417,7 @@ bot.on("message:text", async (ctx) => {
       logger.warn({ userId, command }, 'Interactive command detected');
       await ctx.reply(`⚠️ Interactive command \`${command}\` may not work properly in this terminal. Use \`Ctrl+C\` (send "^C") to cancel if it hangs.`, { parse_mode: 'Markdown' });
     }
-    
+
     logger.info({ userId, command }, 'Executing terminal command');
     // Send command to terminal
     session.terminal.write(command + '\r');
